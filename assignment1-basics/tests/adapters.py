@@ -4,6 +4,7 @@ from calendar import c
 import multiprocessing
 import os
 from re import escape
+import token
 from typing import IO, Any, BinaryIO, List, Tuple, Dict
 from collections.abc import Iterable
 from xml.etree.ElementPath import find
@@ -18,7 +19,8 @@ from cs336_basics.pretokenization_example import find_chunk_boundaries
 from cs336_basics.transformer import (
     Linear, Embedding, RMSNorm,
     SwiGLU, RoPE, softmax, scaled_dot_product_attention,
-    MultiHeadSelfAttention
+    MultiHeadSelfAttention, TransformerBlock,
+    TransformerLM
     )
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -49,7 +51,7 @@ def run_linear(
     """
 
     linear = Linear(d_in, d_out)
-    linear.load_state_dict({"weights": weights})
+    linear.load_state_dict({"weight": weights})
     return linear(in_features)
 
 
@@ -107,9 +109,9 @@ def run_swiglu(
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
     swiglu = SwiGLU(d_model, d_ff)
-    swiglu.w1.weights.data = w1_weight
-    swiglu.w2.weights.data = w2_weight
-    swiglu.w3.weights.data = w3_weight
+    swiglu.w1.weight.data = w1_weight
+    swiglu.w2.weight.data = w2_weight
+    swiglu.w3.weight.data = w3_weight
     return swiglu(in_features)
 
 def run_scaled_dot_product_attention(
@@ -165,10 +167,10 @@ def run_multihead_self_attention(
         implementation with the given QKV projection weights and input features.
     """
     mha = MultiHeadSelfAttention(d_model, num_heads)
-    mha.w_q.weights.data = q_proj_weight
-    mha.w_k.weights.data = k_proj_weight
-    mha.w_v.weights.data = v_proj_weight
-    mha.w_o.weights.data = o_proj_weight
+    mha.q_proj.weight.data = q_proj_weight
+    mha.k_proj.weight.data = k_proj_weight
+    mha.v_proj.weight.data = v_proj_weight
+    mha.o_proj.weight.data = o_proj_weight
     return mha(in_features)
 
 def run_multihead_self_attention_with_rope(
@@ -209,10 +211,10 @@ def run_multihead_self_attention_with_rope(
         implementation with the given QKV projection weights and input features.
     """
     mha_rope = MultiHeadSelfAttention(d_model, num_heads, theta, max_seq_len, use_rope=True)
-    mha_rope.w_q.weights.data = q_proj_weight
-    mha_rope.w_k.weights.data = k_proj_weight
-    mha_rope.w_v.weights.data = v_proj_weight
-    mha_rope.w_o.weights.data = o_proj_weight
+    mha_rope.q_proj.weight.data = q_proj_weight
+    mha_rope.k_proj.weight.data = k_proj_weight
+    mha_rope.v_proj.weight.data = v_proj_weight
+    mha_rope.o_proj.weight.data = o_proj_weight
     return mha_rope(in_features, token_positions)
 
 
@@ -309,7 +311,27 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    block = TransformerBlock(
+        d_model,
+        num_heads,
+        d_ff,
+        theta=theta,
+        max_seq_len=max_seq_len
+    )
+    block.load_state_dict(
+        {
+            "attn.q_proj.weight": weights["attn.q_proj.weight"],
+            "attn.k_proj.weight": weights["attn.k_proj.weight"],
+            "attn.v_proj.weight": weights["attn.v_proj.weight"],
+            "attn.o_proj.weight": weights["attn.output_proj.weight"],
+            "ln1.weight": weights["ln1.weight"],
+            "ffn.w1.weight": weights["ffn.w1.weight"],
+            "ffn.w2.weight": weights["ffn.w2.weight"],
+            "ffn.w3.weight": weights["ffn.w3.weight"],
+            "ln2.weight": weights["ln2.weight"],
+        }
+    )
+    return block(in_features)
 
 
 def run_transformer_lm(
@@ -391,7 +413,32 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    model = TransformerLM(
+        vocab_size,
+        context_length,
+        num_layers,
+        d_model,
+        d_ff,
+        rope_theta,
+        num_heads
+        )
+
+    for i, layer in enumerate(model.layers): # type: ignore
+        layer: TransformerBlock
+        layer.attn.q_proj.weight.data = weights[f"layers.{i}.attn.q_proj.weight"]
+        layer.attn.k_proj.weight.data = weights[f"layers.{i}.attn.k_proj.weight"]
+        layer.attn.v_proj.weight.data = weights[f"layers.{i}.attn.v_proj.weight"]
+        layer.attn.o_proj.weight.data = weights[f"layers.{i}.attn.output_proj.weight"]
+        layer.ln1.weight.data = weights[f"layers.{i}.ln1.weight"]
+        layer.ffn.w1.weight.data = weights[f"layers.{i}.ffn.w1.weight"]
+        layer.ffn.w2.weight.data = weights[f"layers.{i}.ffn.w2.weight"]
+        layer.ffn.w3.weight.data = weights[f"layers.{i}.ffn.w3.weight"]
+        layer.ln2.weight.data = weights[f"layers.{i}.ln2.weight"]
+
+    model.token_embeddings.embedding.data = weights["token_embeddings.weight"]
+    model.ln_final.weight.data = weights["ln_final.weight"]
+    model.lm_head.weight.data = weights["lm_head.weight"]
+    return model(in_indices)
 
 
 def run_rmsnorm(
