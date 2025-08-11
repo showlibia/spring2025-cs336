@@ -133,11 +133,53 @@ def scaled_dot_product_attention(
     d_k = query.size(-1)
     q_k = einsum(query, key, "... queries d_k, ... keys d_k -> ... queries keys")
     q_k = q_k / (d_k ** 0.5)
-    if mask != None:
+    if mask is not None:
         q_k = torch.where(
             mask,
             q_k,
-            torch.tensor(float("-inf"))
+            torch.tensor(float("-inf"), device=q_k.device, dtype=q_k.dtype),
         )
     scores = einsum(softmax(q_k, dim=-1), value, "... queries keys, ... keys d_v -> ... queries d_v")
     return scores
+
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, d_model: int, num_heads: int, theta: float = 10000.0, max_seq_len: int = 512, use_rope: bool = False):
+        super(MultiHeadSelfAttention, self).__init__()
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        self.head_dim = d_model // num_heads
+        self.num_heads = num_heads
+        self.d_model = d_model
+        self.use_rope = use_rope
+        
+        self.w_q = Linear(d_model, d_model)
+        self.w_k = Linear(d_model, d_model)
+        self.w_v = Linear(d_model, d_model)
+        self.w_o = Linear(d_model, d_model)
+        
+        if self.use_rope:
+            self.rope = RoPE(theta, d_k=self.head_dim, max_seq_len=max_seq_len)
+
+    def forward(self, x: torch.Tensor, token_positions: Optional[torch.Tensor] = None):
+        Q = self.w_q(x) # (..., seq_len, d_model)
+        K = self.w_k(x) # (..., seq_len, d_model)
+        V = self.w_v(x) # (..., seq_len, d_model)
+
+        Q = rearrange(Q, "... seq_len (num_heads d_k) -> ... num_heads seq_len d_k", d_k=self.head_dim)
+        K = rearrange(K, "... seq_len (num_heads d_k) -> ... num_heads seq_len d_k", d_k=self.head_dim)
+        V = rearrange(V, "... seq_len (num_heads d_v) -> ... num_heads seq_len d_v", d_v=self.head_dim)
+
+        # Apply RoPE if enabled
+        if self.use_rope:
+            if token_positions is None:
+                raise ValueError("token_positions must be provided when using RoPE")
+            Q = self.rope(Q, token_positions)
+            K = self.rope(K, token_positions)
+
+        seq_len = Q.size(-2)
+        
+        # use the lower triangular matrix with diagonal
+        causal_mask = torch.tril(torch.ones(seq_len, seq_len, device=Q.device, dtype=torch.bool), diagonal=0)
+        attention = scaled_dot_product_attention(Q, K, V, mask=causal_mask)
+        attention = rearrange(attention, "... num_heads seq_len d_v -> ... seq_len (num_heads d_v)")
+        output = self.w_o(attention)
+        return output

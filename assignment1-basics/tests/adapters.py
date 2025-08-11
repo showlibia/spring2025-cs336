@@ -17,7 +17,8 @@ from multiprocessing import Pool, Manager
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 from cs336_basics.transformer import (
     Linear, Embedding, RMSNorm,
-    SwiGLU, RoPE, softmax, scaled_dot_product_attention
+    SwiGLU, RoPE, softmax, scaled_dot_product_attention,
+    MultiHeadSelfAttention
     )
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -163,8 +164,12 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
-
+    mha = MultiHeadSelfAttention(d_model, num_heads)
+    mha.w_q.weights.data = q_proj_weight
+    mha.w_k.weights.data = k_proj_weight
+    mha.w_v.weights.data = v_proj_weight
+    mha.w_o.weights.data = o_proj_weight
+    return mha(in_features)
 
 def run_multihead_self_attention_with_rope(
     d_model: int,
@@ -203,7 +208,12 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    mha_rope = MultiHeadSelfAttention(d_model, num_heads, theta, max_seq_len, use_rope=True)
+    mha_rope.w_q.weights.data = q_proj_weight
+    mha_rope.w_k.weights.data = k_proj_weight
+    mha_rope.w_v.weights.data = v_proj_weight
+    mha_rope.w_o.weights.data = o_proj_weight
+    return mha_rope(in_features, token_positions)
 
 
 def run_rope(
