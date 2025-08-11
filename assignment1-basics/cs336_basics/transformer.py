@@ -5,6 +5,7 @@ import torch.nn as nn
 import numpy as np
 from typing import Optional
 from einops import rearrange, einsum
+from .function import softmax
 
 class Linear(nn.Module):
     def __init__(self, in_features, out_features, device=None, dtype=None):
@@ -77,8 +78,8 @@ class RoPE(nn.Module):
         cos = torch.cos(freqs)
         sin = torch.sin(freqs)
 
-        self.register_buffer("cos_", cos, persistent=False)
-        self.register_buffer("sin_", sin, persistent=False)
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         """
@@ -95,8 +96,8 @@ class RoPE(nn.Module):
         x = rearrange(x, "... seq_len (d_pair pair) -> ... seq_len d_pair pair", pair=2)
 
         # rotary matrix is [[cos, -sin], [sin, cos]]
-        cos = self.cos_[token_positions]
-        sin = self.sin_[token_positions]
+        cos = self.cos[token_positions]
+        sin = self.sin[token_positions]
 
         # reshape cos and sin to match x
         cos = rearrange(cos, "... s d -> ... 1 s d") # (..., seq_len, d_k // 2) -> (..., 1, seq_len, d_k // 2)
@@ -112,11 +113,6 @@ class RoPE(nn.Module):
         out = rearrange(rotated, "... seq_len d_pair pair-> ... seq_len (d_pair pair)")
         return out
         
-
-def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
-    v_max = torch.max(x, dim=dim, keepdim=True).values
-    return torch.exp(x - v_max) / torch.sum(torch.exp(x - v_max), dim=dim, keepdim=True)
-
 def scaled_dot_product_attention(
         query: torch.Tensor, 
         key: torch.Tensor, 

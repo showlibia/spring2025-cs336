@@ -1,24 +1,21 @@
 from __future__ import annotations
 
-from calendar import c
 import multiprocessing
 import os
 from re import escape
-import token
 from typing import IO, Any, BinaryIO, List, Tuple, Dict
 from collections.abc import Iterable
-from xml.etree.ElementPath import find
 
-from numpy import byte
 from jaxtyping import Float, Int
 
 import regex as re
 from collections import defaultdict, Counter
-from multiprocessing import Pool, Manager
+from multiprocessing import Pool
 from cs336_basics.pretokenization_example import find_chunk_boundaries
+from cs336_basics.function import softmax, cross_entropy
 from cs336_basics.transformer import (
     Linear, Embedding, RMSNorm,
-    SwiGLU, RoPE, softmax, scaled_dot_product_attention,
+    SwiGLU, RoPE, scaled_dot_product_attention,
     MultiHeadSelfAttention, TransformerBlock,
     TransformerLM
     )
@@ -170,7 +167,7 @@ def run_multihead_self_attention(
     mha.q_proj.weight.data = q_proj_weight
     mha.k_proj.weight.data = k_proj_weight
     mha.v_proj.weight.data = v_proj_weight
-    mha.o_proj.weight.data = o_proj_weight
+    mha.output_proj.weight.data = o_proj_weight
     return mha(in_features)
 
 def run_multihead_self_attention_with_rope(
@@ -214,7 +211,7 @@ def run_multihead_self_attention_with_rope(
     mha_rope.q_proj.weight.data = q_proj_weight
     mha_rope.k_proj.weight.data = k_proj_weight
     mha_rope.v_proj.weight.data = v_proj_weight
-    mha_rope.o_proj.weight.data = o_proj_weight
+    mha_rope.output_proj.weight.data = o_proj_weight
     return mha_rope(in_features, token_positions)
 
 
@@ -506,7 +503,7 @@ def run_cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets: 
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    return cross_entropy(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
