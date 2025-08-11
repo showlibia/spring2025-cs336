@@ -24,11 +24,11 @@ class Embedding(nn.Module):
         embedding_dim: dimension of the embeddings, i.e., d_model
         """
         super(Embedding, self).__init__()
-        self.embedding = nn.Parameter(torch.empty((num_embeddings, embedding_dim), device=device, dtype=dtype))
-        nn.init.trunc_normal_(self.embedding, mean=0.0, std=1, a=-3, b=3)
+        self.weight = nn.Parameter(torch.empty((num_embeddings, embedding_dim), device=device, dtype=dtype))
+        nn.init.trunc_normal_(self.weight, mean=0.0, std=1, a=-3, b=3)
 
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
-        return self.embedding[token_ids]
+        return self.weight[token_ids]
     
 
 class RMSNorm(nn.Module):
@@ -154,7 +154,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.q_proj = Linear(d_model, d_model)
         self.k_proj = Linear(d_model, d_model)
         self.v_proj = Linear(d_model, d_model)
-        self.o_proj = Linear(d_model, d_model)
+        self.output_proj = Linear(d_model, d_model)
 
         if self.use_rope:
             self.rope = RoPE(theta, d_k=self.head_dim, max_seq_len=max_seq_len)
@@ -181,7 +181,7 @@ class MultiHeadSelfAttention(nn.Module):
         causal_mask = torch.tril(torch.ones(seq_len, seq_len, device=Q.device, dtype=torch.bool), diagonal=0)
         attention = scaled_dot_product_attention(Q, K, V, mask=causal_mask)
         attention = rearrange(attention, "... num_heads seq_len d_v -> ... seq_len (num_heads d_v)")
-        output = self.o_proj(attention)
+        output = self.output_proj(attention)
         return output
     
 class TransformerBlock(nn.Module):

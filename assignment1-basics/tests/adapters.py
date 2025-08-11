@@ -75,7 +75,7 @@ def run_embedding(
     """
 
     embedding = Embedding(vocab_size, d_model)
-    embedding.load_state_dict({"embedding": weights})
+    embedding.load_state_dict({"weight": weights})
     return embedding(token_ids)
 
 
@@ -318,19 +318,7 @@ def run_transformer_block(
         theta=theta,
         max_seq_len=max_seq_len
     )
-    block.load_state_dict(
-        {
-            "attn.q_proj.weight": weights["attn.q_proj.weight"],
-            "attn.k_proj.weight": weights["attn.k_proj.weight"],
-            "attn.v_proj.weight": weights["attn.v_proj.weight"],
-            "attn.o_proj.weight": weights["attn.output_proj.weight"],
-            "ln1.weight": weights["ln1.weight"],
-            "ffn.w1.weight": weights["ffn.w1.weight"],
-            "ffn.w2.weight": weights["ffn.w2.weight"],
-            "ffn.w3.weight": weights["ffn.w3.weight"],
-            "ln2.weight": weights["ln2.weight"],
-        }
-    )
+    block.load_state_dict(weights)
     return block(in_features)
 
 
@@ -423,21 +411,7 @@ def run_transformer_lm(
         num_heads
         )
 
-    for i, layer in enumerate(model.layers): # type: ignore
-        layer: TransformerBlock
-        layer.attn.q_proj.weight.data = weights[f"layers.{i}.attn.q_proj.weight"]
-        layer.attn.k_proj.weight.data = weights[f"layers.{i}.attn.k_proj.weight"]
-        layer.attn.v_proj.weight.data = weights[f"layers.{i}.attn.v_proj.weight"]
-        layer.attn.o_proj.weight.data = weights[f"layers.{i}.attn.output_proj.weight"]
-        layer.ln1.weight.data = weights[f"layers.{i}.ln1.weight"]
-        layer.ffn.w1.weight.data = weights[f"layers.{i}.ffn.w1.weight"]
-        layer.ffn.w2.weight.data = weights[f"layers.{i}.ffn.w2.weight"]
-        layer.ffn.w3.weight.data = weights[f"layers.{i}.ffn.w3.weight"]
-        layer.ln2.weight.data = weights[f"layers.{i}.ln2.weight"]
-
-    model.token_embeddings.embedding.data = weights["token_embeddings.weight"]
-    model.ln_final.weight.data = weights["ln_final.weight"]
-    model.lm_head.weight.data = weights["lm_head.weight"]
+    model.load_state_dict(weights)
     return model(in_indices)
 
 
